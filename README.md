@@ -14,16 +14,21 @@ A modular and automated data ingestion system for real-time traffic and weather 
 
 ```text
 traffic-project/
-├── ingestion/
-│   ├── ingestion.py      # Unified automation script
-│   ├── traffic_api.py    # Traffic lookup logic
-│   └── weather_api.py    # Weather lookup logic
+├── src/                  # Source code for data processing
+│   ├── jobs/             # Spark transformation jobs
+│   ├── utils/            # Shared utilities (Spark session, etc.)
+│   └── schemas/          # Data schemas for structured reading
+├── ingestion/            # API Ingestion logic
+│   ├── ingestion.py      
+│   ├── traffic_api.py    
+│   └── weather_api.py    
 ├── data/
 │   └── raw/              # Locally stored JSON data
-├── .env                  # Environment configuration (ignored by git)
-├── .gitignore            # Git exclusion rules
-├── README.md             # Project documentation
-└── requirements.txt      # Python dependencies
+├── configs/              # Configuration files
+├── .env                  
+├── .gitignore            
+├── README.md             
+└── requirements.txt      
 ```
 
 ## Setup Instructions
@@ -53,4 +58,15 @@ Run the unified ingestion script to start the automation:
 python ingestion/ingestion.py
 ```
 
-Data will be saved as timestamped JSON files in the `ingestion/` directory (configured for local raw data storage).
+### Data Transformation (Spark)
+
+To process the raw JSON data from S3 and flatten it into Parquet format:
+
+```bash
+export PYTHONPATH=$PYTHONPATH:.
+python src/jobs/traffic_transformation.py \
+    --input "s3://traffic-data-project-manish/raw/2026/03/23/traffic_20260322_225531.json" \
+    --output "s3://traffic-data-project-manish/processed/traffic_flattened/"
+```
+
+*Note: Ensure you have `pyspark` installed and AWS credentials configured.*

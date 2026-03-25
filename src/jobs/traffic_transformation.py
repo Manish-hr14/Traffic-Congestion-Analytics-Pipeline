@@ -1,59 +1,95 @@
 import sys
 import argparse
-from pyspark.sql import functions as F
-from src.utils.spark_utils import get_spark_session
-from src.schemas.traffic_schema import TRAFFIC_JSON_SCHEMA
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, when, hour, to_timestamp, explode
 
 def run_transformation(input_path: str, output_path: str):
     """
-    Main transformation logic for traffic data from S3 JSON to S3 Parquet.
-    Includes flattening nested structures.
+    Main transformation logic for traffic data:
+    - Explodes nested records
+    - Flattens flowSegmentData
+    - Engineers features: speed_ratio, congestion_level, delay, hour, rush_hour.
     """
-    spark = get_spark_session("TrafficTransformationJob")
+    spark = SparkSession.builder.appName("TrafficFeatureEngineering").getOrCreate()
     
-    # 1. Read JSON with pre-defined schema (multiline = true)
     print(f"Reading data from: {input_path}")
-    df = spark.read.option("multiline", "true").schema(TRAFFIC_JSON_SCHEMA).json(input_path)
+    # Read multiline JSON
+    df = spark.read.option("multiline", "true").json(input_path)
     
-    # 2. Extract flowSegmentData fields
-    # This promotes nested fields under flowSegmentData to the top level
-    df_flattened = df.select("flowSegmentData.*")
+    # 🔥 STEP 1: explode array to get individual location records
+    df = df.select("ingestion_time", explode("data").alias("record"))
     
-    # 3. Handle nested coordinates (Exploding into multiple rows)
-    # Each coordinate point (lat/long) becomes a row for that segment
-    df_exploded = df_flattened.withColumn("coord_point", F.explode("coordinates.coordinate"))
-    
-    # 4. Final output selection
-    # Dropping the coordinates struct and point struct to keep only flattened fields
-    final_df = df_exploded.select(
-        "frc",
-        "currentSpeed",
-        "freeFlowSpeed",
-        "currentTravelTime",
-        "freeFlowTravelTime",
-        "confidence",
-        "roadClosure",
-        F.col("coord_point.latitude").alias("latitude"),
-        F.col("coord_point.longitude").alias("longitude")
+    # 🔥 STEP 2: flatten structure
+    df = df.select(
+        "ingestion_time",
+        "record.latitude",
+        "record.longitude",
+        "record.flowSegmentData.*"
     )
     
-    # 5. Display sample for verification
-    print("Schema after flattening:")
-    final_df.printSchema()
-    final_df.show(10)
+    # FEATURE 1: Speed Ratio
+    df = df.withColumn(
+        "speed_ratio",
+        col("currentSpeed") / col("freeFlowSpeed")
+    )
     
-    # 6. Write to Parquet (Overwrite mode)
+    # FEATURE 2: Congestion Level
+    df = df.withColumn(
+        "congestion_level",
+        when(col("speed_ratio") > 0.9, "LOW")
+        .when(col("speed_ratio") > 0.6, "MEDIUM")
+        .otherwise("HIGH")
+    )
+    
+    # FEATURE 3: Delay
+    df = df.withColumn(
+        "delay",
+        col("currentTravelTime") - col("freeFlowTravelTime")
+    )
+    
+    # FEATURE 4: Extract Hour
+    df = df.withColumn(
+        "timestamp_converted",
+        to_timestamp(col("ingestion_time"))
+    )
+    
+    df = df.withColumn(
+        "hour",
+        hour(col("timestamp_converted"))
+    )
+    
+    # FEATURE 5: Rush Hour Flag
+    df = df.withColumn(
+        "rush_hour",
+        when((col("hour") >= 8) & (col("hour") <= 10), "YES")
+        .when((col("hour") >= 17) & (col("hour") <= 20), "YES")
+        .otherwise("NO")
+    )
+    
+    print("Final Data Sample:")
+    df.select(
+        "currentSpeed",
+        "freeFlowSpeed",
+        "speed_ratio",
+        "congestion_level",
+        "hour",
+        "roadClosure",
+        "delay",
+        "longitude",
+        "rush_hour"
+    ).show(20, truncate=False)
+    
+    df.printSchema()
+    
     print(f"Writing processed data to: {output_path}")
-    final_df.write.mode("overwrite").parquet(output_path)
+    df.write.mode("overwrite").parquet(output_path)
     
     print("Transformation successful.")
 
 if __name__ == "__main__":
-    # Standard argument parsing for extensibility
     parser = argparse.ArgumentParser(description="Process Traffic JSON to Parquet")
-    parser.add_argument("--input", type=str, required=True, help="Input S3 bucket URL")
-    parser.add_argument("--output", type=str, required=True, help="Output S3 bucket URL")
+    parser.add_argument("--input", type=str, required=True, help="Input S3 bucket URL or local path")
+    parser.add_argument("--output", type=str, required=True, help="Output S3 bucket URL or local path")
     
     args = parser.parse_args()
-    
     run_transformation(args.input, args.output)

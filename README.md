@@ -2,6 +2,10 @@
 
 A modular and automated data ingestion system for real-time traffic and weather data, designed for Data Engineering pipelines.
 
+## Architecture
+
+![Architecture Diagram](docs/architecture_diagram.png)
+
 ## Features
 
 - **Automated Ingestion**: Unified script that fetches data every 10 minutes.
@@ -15,15 +19,17 @@ A modular and automated data ingestion system for real-time traffic and weather 
 ```text
 traffic-project/
 ├── src/                  # Source code for data processing
-│   ├── jobs/             # Spark transformation jobs
+│   ├── jobs/             # Spark transformation jobs (Traffic & Weather)
 │   ├── utils/            # Shared utilities (Spark session, etc.)
-│   └── schemas/          # Data schemas for structured reading
+│   └── schemas/          # Data schemas (Traffic & Weather)
 ├── ingestion/            # API Ingestion logic
-│   ├── ingestion.py      
+│   ├── ingestion.py      # Unified ingestion script
 │   ├── traffic_api.py    
 │   └── weather_api.py    
 ├── data/
 │   └── raw/              # Locally stored JSON data
+├── docs/                 # Documentation and Diagrams
+│   └── architecture_diagram.png
 ├── configs/              # Configuration files
 ├── .env                  
 ├── .gitignore            
